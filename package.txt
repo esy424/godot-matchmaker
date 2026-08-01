@@ -1,0 +1,12 @@
+{
+  "name": "godot-matchmaker",
+  "version": "1.0.0",
+  "description": "Random Matchmaking Server for Godot 4",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "ws": "^8.16.0"
+  }
+}

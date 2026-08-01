@@ -1,0 +1,87 @@
+const WebSocket = require('ws');
+
+// پورت سرور (Render به طور خودکار پورت را تنظیم می‌کند)
+const PORT = process.env.PORT || 8080;
+const wss = new WebSocket.Server({ port: PORT });
+
+let waitingQueue = []; // صف انتظار بازیکنان
+let roomIdCounter = 1;
+
+console.log(`سرور Matchmaking روی پورت ${PORT} روشن شد.`);
+
+wss.on('connection', (ws) => {
+    // ایجاد یک شناسه منحصر‌به‌فرد برای هر بازیکن
+    ws.id = Math.floor(Math.random() * 1000000);
+    console.log(`بازیکن جدید متصل شد! شناسه: ${ws.id}`);
+
+    // ارسال پیام تایید اتصال به بازیکن
+    ws.send(JSON.stringify({ type: "connected", id: ws.id }));
+
+    ws.on('message', (message) => {
+        try {
+            const data = JSON.parse(message);
+
+            // ۱. درخواست پیدا کردن حریف رندوم
+            if (data.type === "find_match") {
+                // اگر بازیکن قبلاً در صف نبوده، او را اضافه کن
+                if (!waitingQueue.includes(ws)) {
+                    waitingQueue.push(ws);
+                    console.log(`بازیکن ${ws.id} وارد صف شد. تعداد افراد در صف: ${waitingQueue.length}`);
+                }
+
+                // اگر حداقل ۲ نفر در صف بودند، match را بساز!
+                if (waitingQueue.length >= 2) {
+                    const player1 = waitingQueue.shift();
+                    const player2 = waitingQueue.shift();
+                    const roomId = "room_" + roomIdCounter++;
+
+                    player1.roomId = roomId;
+                    player2.roomId = roomId;
+                    player1.opponent = player2;
+                    player2.opponent = player1;
+
+                    console.log(`حریف پیدا شد! ساخت اتاق ${roomId} برای بازیکنان ${player1.id} و ${player2.id}`);
+
+                    // اعلام به بازیکن اول (که نقش Host / بازیکن ۱ را دارد)
+                    player1.send(JSON.stringify({
+                        type: "match_found",
+                        room_id: roomId,
+                        is_host: true
+                    }));
+
+                    // اعلام به بازیکن دوم (بازیکن ۲)
+                    player2.send(JSON.stringify({
+                        type: "match_found",
+                        room_id: roomId,
+                        is_host: false
+                    }));
+                }
+            }
+
+            // ۲. رد و بدل کردن داده‌های بازی بین دو بازیکن هم‌اتاقی (حرکت، اتک و...)
+            else if (data.type === "game_data") {
+                if (ws.opponent && ws.opponent.readyState === WebSocket.OPEN) {
+                    ws.opponent.send(JSON.stringify({
+                        type: "game_data",
+                        payload: data.payload
+                    }));
+                }
+            }
+
+        } catch (e) {
+            console.error("خطا در پردازش پیام:", e);
+        }
+    });
+
+    // مدیریت قطع شدن اتصال بازیکن
+    ws.on('close', () => {
+        console.log(`بازیکن ${ws.id} قطع شد.`);
+        // حذف از صف انتظار در صورت وجود
+        waitingQueue = waitingQueue.filter(client => client !== ws);
+
+        // اطلاع دادن به بازیکن مقابل در صورت قطع شدن هم‌اتاقی
+        if (ws.opponent && ws.opponent.readyState === WebSocket.OPEN) {
+            ws.opponent.send(JSON.stringify({ type: "opponent_disconnected" }));
+        }
+    });
+});
