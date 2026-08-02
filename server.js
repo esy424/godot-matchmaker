@@ -3,15 +3,16 @@ const { WebSocketServer } = require('ws');
 const PORT = process.env.PORT || 10000;
 const wss = new WebSocketServer({ port: PORT });
 
-let waitingPlayers = [];
+let waitingQueue = [];
+let activeRooms = {};
 
-console.log(`Server started on port ${PORT}`);
+console.log(`Matchmaking Server Running on Port ${PORT}`);
 
 wss.on('connection', (ws) => {
-    // تولید یک آی‌دی تصادفی برای بازیکن
+    // ایجاد آی‌دی شش رقمی یکتا برای هر بازیکن
     ws.id = Math.floor(100000 + Math.random() * 900000);
     
-    // ۱. ارسال پیام خوش‌آمدگویی و آی‌دی به بازیکن
+    // ۱. ارسال آی‌دی به کلاینت محض اتصال
     ws.send(JSON.stringify({
         type: "connected",
         id: ws.id
@@ -22,20 +23,23 @@ wss.on('connection', (ws) => {
             const data = JSON.parse(message);
 
             if (data.type === "find_match") {
-                // اگر بازیکن قبلا در صف نیست، اضافه‌اش کن
-                if (!waitingPlayers.includes(ws)) {
-                    waitingPlayers.push(ws);
-                    console.log(`Player ${ws.id} joined match queue.`);
+                // اگر بازیکن قبلاً در صف نیست، به صف اضافه‌اش کن
+                if (!waitingQueue.some(p => p.id === ws.id)) {
+                    waitingQueue.push(ws);
+                    console.log(`Player ${ws.id} added to queue. Total in queue: ${waitingQueue.length}`);
                 }
 
-                // ۲. اگر ۲ نفر در صف بودند، match را بستر
-                if (waitingPlayers.length >= 2) {
-                    const player1 = waitingPlayers.shift();
-                    const player2 = waitingPlayers.shift();
+                // اگر حداقل ۲ نفر در صف بودند، match بساز
+                if (waitingQueue.length >= 2) {
+                    const player1 = waitingQueue.shift();
+                    const player2 = waitingQueue.shift();
 
-                    const roomId = "room_" + Math.floor(Math.random() * 10000);
+                    const roomId = "room_" + Date.now();
+                    activeRooms[roomId] = [player1, player2];
 
-                    // پیام ساخت اتاق به هر دو بازیکن
+                    player1.roomId = roomId;
+                    player2.roomId = roomId;
+
                     const matchData = {
                         type: "match_found",
                         roomId: roomId,
@@ -45,17 +49,22 @@ wss.on('connection', (ws) => {
                     player1.send(JSON.stringify(matchData));
                     player2.send(JSON.stringify(matchData));
 
-                    console.log(`Match created: ${roomId} between ${player1.id} and ${player2.id}`);
+                    console.log(`Created ${roomId} for Players: ${player1.id} & ${player2.id}`);
                 }
             }
         } catch (e) {
-            console.error("Error processing message:", e);
+            console.error("Error parsing message:", e);
         }
     });
 
     ws.on('close', () => {
-        // حذف بازیکن از صف در صورت قطعی
-        waitingPlayers = waitingPlayers.filter(p => p !== ws);
+        // حذف از صف انتظار در صورت قطعی
+        waitingQueue = waitingQueue.filter(p => p.id !== ws.id);
+        
+        // اگر در اتاقی بود، به بازیکن مقابل اطلاع بده (برای بعداً)
+        if (ws.roomId && activeRooms[ws.roomId]) {
+            delete activeRooms[ws.roomId];
+        }
         console.log(`Player ${ws.id} disconnected.`);
     });
 });
