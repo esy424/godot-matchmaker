@@ -1,4 +1,5 @@
 const { WebSocketServer } = require('ws');
+const https = require('https');
 
 const PORT = process.env.PORT || 10000;
 const wss = new WebSocketServer({ port: PORT });
@@ -12,7 +13,7 @@ wss.on('connection', (ws) => {
     // ایجاد آی‌دی شش رقمی یکتا برای هر بازیکن
     ws.id = Math.floor(100000 + Math.random() * 900000);
     
-    // ۱. ارسال آی‌دی به کلاینت محض اتصال
+    // ۱. ارسال آی‌دی به کلاینت به محض اتصال
     ws.send(JSON.stringify({
         type: "connected",
         id: ws.id
@@ -61,7 +62,6 @@ wss.on('connection', (ws) => {
         // حذف از صف انتظار در صورت قطعی
         waitingQueue = waitingQueue.filter(p => p.id !== ws.id);
         
-        // اگر در اتاقی بود، به بازیکن مقابل اطلاع بده (برای بعداً)
         if (ws.roomId && activeRooms[ws.roomId]) {
             delete activeRooms[ws.roomId];
         }
@@ -69,12 +69,15 @@ wss.on('connection', (ws) => {
     });
 });
 
-// خود-پینگ برای بیدار ماندن در Render
-const https = require('https');
+// ==========================================
+// کد خود-پینگ (Self-Ping) برای بیدار نگه داشتن Render
+// ==========================================
+const SERVER_URL = 'https://godot-matchmaker.onrender.com';
+
 setInterval(() => {
-    https.get('https://godot-matchmaker.onrender.com', (res) => {
-        console.log('Self-ping sent to keep server alive!');
+    https.get(SERVER_URL, (res) => {
+        console.log(`Self-ping sent. Status Code: ${res.statusCode}`);
     }).on('error', (err) => {
         console.log('Self-ping error:', err.message);
     });
-}, 4 * 60 * 1000); // هر ۴ دقیقه یک‌بار
+}, 4 * 60 * 1000); // هر ۴ دقیقه یک‌بار پینگ می‌زند
