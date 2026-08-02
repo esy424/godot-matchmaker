@@ -68,3 +68,13 @@ wss.on('connection', (ws) => {
         console.log(`Player ${ws.id} disconnected.`);
     });
 });
+
+// خود-پینگ برای بیدار ماندن در Render
+const https = require('https');
+setInterval(() => {
+    https.get('https://godot-matchmaker.onrender.com', (res) => {
+        console.log('Self-ping sent to keep server alive!');
+    }).on('error', (err) => {
+        console.log('Self-ping error:', err.message);
+    });
+}, 4 * 60 * 1000); // هر ۴ دقیقه یک‌بار
