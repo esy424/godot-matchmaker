@@ -10,10 +10,8 @@ let activeRooms = {};
 console.log(`Matchmaking Server Running on Port ${PORT}`);
 
 wss.on('connection', (ws) => {
-    // ایجاد آی‌دی شش رقمی یکتا برای هر بازیکن
     ws.id = Math.floor(100000 + Math.random() * 900000);
     
-    // ۱. ارسال آی‌دی به کلاینت به محض اتصال
     ws.send(JSON.stringify({
         type: "connected",
         id: ws.id
@@ -23,14 +21,13 @@ wss.on('connection', (ws) => {
         try {
             const data = JSON.parse(message);
 
+            // ۱. جفت‌سازی اولیه
             if (data.type === "find_match") {
-                // اگر بازیکن قبلاً در صف نیست، به صف اضافه‌اش کن
                 if (!waitingQueue.some(p => p.id === ws.id)) {
                     waitingQueue.push(ws);
                     console.log(`Player ${ws.id} added to queue. Total in queue: ${waitingQueue.length}`);
                 }
 
-                // اگر حداقل ۲ نفر در صف بودند، match بساز
                 if (waitingQueue.length >= 2) {
                     const player1 = waitingQueue.shift();
                     const player2 = waitingQueue.shift();
@@ -53,13 +50,27 @@ wss.on('connection', (ws) => {
                     console.log(`Created ${roomId} for Players: ${player1.id} & ${player2.id}`);
                 }
             }
+
+            // ۲. انتقال پیام‌های اکشن بازی بین دو بازیکن (Relay)
+            if (data.type === "game_action") {
+                if (ws.roomId && activeRooms[ws.roomId]) {
+                    const room = activeRooms[ws.roomId];
+                    // پیدا کردن حریف در همان اتاق
+                    const opponent = room.find(p => p.id !== ws.id);
+                    
+                    if (opponent && opponent.readyState === 1) { // 1 یعنی WebSocket باز است
+                        data.senderId = ws.id;
+                        opponent.send(JSON.stringify(data));
+                    }
+                }
+            }
+
         } catch (e) {
             console.error("Error parsing message:", e);
         }
     });
 
     ws.on('close', () => {
-        // حذف از صف انتظار در صورت قطعی
         waitingQueue = waitingQueue.filter(p => p.id !== ws.id);
         
         if (ws.roomId && activeRooms[ws.roomId]) {
@@ -69,15 +80,12 @@ wss.on('connection', (ws) => {
     });
 });
 
-// ==========================================
-// کد خود-پینگ (Self-Ping) برای بیدار نگه داشتن Render
-// ==========================================
+// Self-Ping برای بیدار نگه داشتن سرور Render
 const SERVER_URL = 'https://godot-matchmaker.onrender.com';
-
 setInterval(() => {
     https.get(SERVER_URL, (res) => {
-        console.log(`Self-ping sent. Status Code: ${res.statusCode}`);
+        console.log(`Self-ping status: ${res.statusCode}`);
     }).on('error', (err) => {
         console.log('Self-ping error:', err.message);
     });
-}, 4 * 60 * 1000); // هر ۴ دقیقه یک‌بار پینگ می‌زند
+}, 4 * 60 * 1000);
