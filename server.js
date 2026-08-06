@@ -1,4 +1,4 @@
-const { WebSocketServer } = require('ws');
+const { WebSocketServer, WebSocket } = require('ws');
 const https = require('https');
 
 const PORT = process.env.PORT || 10000;
@@ -21,13 +21,21 @@ wss.on('connection', (ws) => {
         try {
             const data = JSON.parse(message);
 
-            // ۱. جفت‌سازی اولیه
+            // ۱. جفت‌سازی اولیه (Matchmaking)
             if (data.type === "find_match") {
+                // اگر بازیکن از قبل در اتاق فعال است، ابتدا از آن خارج شود
+                cleanupPlayerRoom(ws);
+
+                // اضافه کردن به صف فقط در صورتی که قبلا وجود ندارد
                 if (!waitingQueue.some(p => p.id === ws.id)) {
                     waitingQueue.push(ws);
                     console.log(`Player ${ws.id} added to queue. Total in queue: ${waitingQueue.length}`);
                 }
 
+                // پاک‌سازی سوکت‌های بسته یا قطعی از صف قبل از جفت‌سازی
+                waitingQueue = waitingQueue.filter(p => p.readyState === WebSocket.OPEN);
+
+                // اگر حداقل ۲ بازیکن زنده در صف بودند
                 if (waitingQueue.length >= 2) {
                     const player1 = waitingQueue.shift();
                     const player2 = waitingQueue.shift();
@@ -51,14 +59,19 @@ wss.on('connection', (ws) => {
                 }
             }
 
-            // ۲. انتقال پیام‌های اکشن بازی بین دو بازیکن (Relay)
+            // ۲. انصراف از صف جفت‌سازی (Cancel Matchmaking)
+            if (data.type === "leave_queue" || data.type === "cancel_matchmaking") {
+                waitingQueue = waitingQueue.filter(p => p.id !== ws.id);
+                console.log(`Player ${ws.id} left the queue.`);
+            }
+
+            // ۳. انتقال پیام‌های اکشن بازی بین دو بازیکن (Relay)
             if (data.type === "game_action") {
                 if (ws.roomId && activeRooms[ws.roomId]) {
                     const room = activeRooms[ws.roomId];
-                    // پیدا کردن حریف در همان اتاق
                     const opponent = room.find(p => p.id !== ws.id);
                     
-                    if (opponent && opponent.readyState === 1) { // 1 یعنی WebSocket باز است
+                    if (opponent && opponent.readyState === WebSocket.OPEN) {
                         data.senderId = ws.id;
                         opponent.send(JSON.stringify(data));
                     }
@@ -70,15 +83,34 @@ wss.on('connection', (ws) => {
         }
     });
 
+    // مدیریت قطعی اتصال
     ws.on('close', () => {
+        // ۱. حذف از صف انتظار
         waitingQueue = waitingQueue.filter(p => p.id !== ws.id);
         
-        if (ws.roomId && activeRooms[ws.roomId]) {
-            delete activeRooms[ws.roomId];
-        }
+        // ۲. پاک‌سازی اتاق و اطلاع به حریف در صورت قطعی
+        cleanupPlayerRoom(ws);
+
         console.log(`Player ${ws.id} disconnected.`);
     });
 });
+
+// تابع کمکی برای پاک‌سازی اتاق و اطلاع به حریف
+function cleanupPlayerRoom(ws) {
+    if (ws.roomId && activeRooms[ws.roomId]) {
+        const room = activeRooms[ws.roomId];
+        const opponent = room.find(p => p.id !== ws.id);
+
+        if (opponent && opponent.readyState === WebSocket.OPEN) {
+            opponent.send(JSON.stringify({
+                type: "opponent_disconnected"
+            }));
+        }
+
+        delete activeRooms[ws.roomId];
+        ws.roomId = null;
+    }
+}
 
 // Self-Ping برای بیدار نگه داشتن سرور Render
 const SERVER_URL = 'https://godot-matchmaker.onrender.com';
