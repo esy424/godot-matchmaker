@@ -1,15 +1,19 @@
 const { WebSocketServer } = require('ws');
-const https = require('https');
 
+// Render پورت را در process.env.PORT قرار می‌دهد
 const PORT = process.env.PORT || 10000;
 const wss = new WebSocketServer({ port: PORT });
 
 let waitingQueue = [];
 let activeRooms = {};
 
+console.log(`Matchmaking Server Running on Port ${PORT}`);
+
 wss.on('connection', (ws) => {
     ws.id = Math.floor(100000 + Math.random() * 900000);
+    console.log(`Player connected: ${ws.id}`);
     
+    // ارسال فوری پیام اتصال
     ws.send(JSON.stringify({
         type: "connected",
         id: ws.id
@@ -20,36 +24,33 @@ wss.on('connection', (ws) => {
             const data = JSON.parse(message);
 
             if (data.type === "find_match") {
-                // پاکسازی صف از سوکت‌های بسته شده
+                // حذف اتصالات قطعی‌خورده از صف
                 waitingQueue = waitingQueue.filter(p => p.readyState === 1 && p.id !== ws.id);
-
-                waitingQueue.push(ws);
+                
+                if (!waitingQueue.some(p => p.id === ws.id)) {
+                    waitingQueue.push(ws);
+                    console.log(`Player ${ws.id} added to queue. Queue size: ${waitingQueue.length}`);
+                }
 
                 if (waitingQueue.length >= 2) {
                     const player1 = waitingQueue.shift();
                     const player2 = waitingQueue.shift();
 
-                    // چک کردن سلامتی اتصال هر دو بازیکن
-                    if (player1.readyState === 1 && player2.readyState === 1) {
-                        const roomId = "room_" + Date.now();
-                        activeRooms[roomId] = [player1, player2];
+                    const roomId = "room_" + Date.now();
+                    activeRooms[roomId] = [player1, player2];
 
-                        player1.roomId = roomId;
-                        player2.roomId = roomId;
+                    player1.roomId = roomId;
+                    player2.roomId = roomId;
 
-                        const matchData = {
-                            type: "match_found",
-                            roomId: roomId,
-                            hostId: player1.id
-                        };
+                    const matchData = {
+                        type: "match_found",
+                        roomId: roomId,
+                        hostId: player1.id
+                    };
 
-                        player1.send(JSON.stringify(matchData));
-                        player2.send(JSON.stringify(matchData));
-                    } else {
-                        // اگر یکی قطع بود، اونیکی که سالمه رو برمی‌گردونیم به صف
-                        if (player1.readyState === 1) waitingQueue.push(player1);
-                        if (player2.readyState === 1) waitingQueue.push(player2);
-                    }
+                    console.log(`Match Found! Sending to ${player1.id} & ${player2.id}`);
+                    player1.send(JSON.stringify(matchData));
+                    player2.send(JSON.stringify(matchData));
                 }
             }
 
@@ -75,10 +76,6 @@ wss.on('connection', (ws) => {
         if (ws.roomId && activeRooms[ws.roomId]) {
             delete activeRooms[ws.roomId];
         }
+        console.log(`Player ${ws.id} disconnected`);
     });
 });
-
-const SERVER_URL = 'https://godot-matchmaker.onrender.com';
-setInterval(() => {
-    https.get(SERVER_URL, (res) => {}).on('error', (err) => {});
-}, 4 * 60 * 1000);
