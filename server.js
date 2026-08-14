@@ -20,28 +20,36 @@ wss.on('connection', (ws) => {
             const data = JSON.parse(message);
 
             if (data.type === "find_match") {
-                if (!waitingQueue.some(p => p.id === ws.id)) {
-                    waitingQueue.push(ws);
-                }
+                // پاکسازی صف از سوکت‌های بسته شده
+                waitingQueue = waitingQueue.filter(p => p.readyState === 1 && p.id !== ws.id);
+
+                waitingQueue.push(ws);
 
                 if (waitingQueue.length >= 2) {
                     const player1 = waitingQueue.shift();
                     const player2 = waitingQueue.shift();
 
-                    const roomId = "room_" + Date.now();
-                    activeRooms[roomId] = [player1, player2];
+                    // چک کردن سلامتی اتصال هر دو بازیکن
+                    if (player1.readyState === 1 && player2.readyState === 1) {
+                        const roomId = "room_" + Date.now();
+                        activeRooms[roomId] = [player1, player2];
 
-                    player1.roomId = roomId;
-                    player2.roomId = roomId;
+                        player1.roomId = roomId;
+                        player2.roomId = roomId;
 
-                    const matchData = {
-                        type: "match_found",
-                        roomId: roomId,
-                        hostId: player1.id
-                    };
+                        const matchData = {
+                            type: "match_found",
+                            roomId: roomId,
+                            hostId: player1.id
+                        };
 
-                    if (player1.readyState === 1) player1.send(JSON.stringify(matchData));
-                    if (player2.readyState === 1) player2.send(JSON.stringify(matchData));
+                        player1.send(JSON.stringify(matchData));
+                        player2.send(JSON.stringify(matchData));
+                    } else {
+                        // اگر یکی قطع بود، اونیکی که سالمه رو برمی‌گردونیم به صف
+                        if (player1.readyState === 1) waitingQueue.push(player1);
+                        if (player2.readyState === 1) waitingQueue.push(player2);
+                    }
                 }
             }
 
@@ -64,7 +72,6 @@ wss.on('connection', (ws) => {
 
     ws.on('close', () => {
         waitingQueue = waitingQueue.filter(p => p.id !== ws.id);
-        
         if (ws.roomId && activeRooms[ws.roomId]) {
             delete activeRooms[ws.roomId];
         }
