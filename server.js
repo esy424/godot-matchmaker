@@ -7,8 +7,6 @@ const wss = new WebSocketServer({ port: PORT });
 let waitingQueue = [];
 let activeRooms = {};
 
-console.log(`Matchmaking Server Running on Port ${PORT}`);
-
 wss.on('connection', (ws) => {
     ws.id = Math.floor(100000 + Math.random() * 900000);
     
@@ -21,11 +19,9 @@ wss.on('connection', (ws) => {
         try {
             const data = JSON.parse(message);
 
-            // ۱. جفت‌سازی اولیه
             if (data.type === "find_match") {
                 if (!waitingQueue.some(p => p.id === ws.id)) {
                     waitingQueue.push(ws);
-                    console.log(`Player ${ws.id} added to queue. Total in queue: ${waitingQueue.length}`);
                 }
 
                 if (waitingQueue.length >= 2) {
@@ -44,21 +40,17 @@ wss.on('connection', (ws) => {
                         hostId: player1.id
                     };
 
-                    player1.send(JSON.stringify(matchData));
-                    player2.send(JSON.stringify(matchData));
-
-                    console.log(`Created ${roomId} for Players: ${player1.id} & ${player2.id}`);
+                    if (player1.readyState === 1) player1.send(JSON.stringify(matchData));
+                    if (player2.readyState === 1) player2.send(JSON.stringify(matchData));
                 }
             }
 
-            // ۲. انتقال پیام‌های اکشن بازی بین دو بازیکن (Relay)
             if (data.type === "game_action") {
                 if (ws.roomId && activeRooms[ws.roomId]) {
                     const room = activeRooms[ws.roomId];
-                    // پیدا کردن حریف در همان اتاق
                     const opponent = room.find(p => p.id !== ws.id);
                     
-                    if (opponent && opponent.readyState === 1) { // 1 یعنی WebSocket باز است
+                    if (opponent && opponent.readyState === 1) {
                         data.senderId = ws.id;
                         opponent.send(JSON.stringify(data));
                     }
@@ -76,16 +68,10 @@ wss.on('connection', (ws) => {
         if (ws.roomId && activeRooms[ws.roomId]) {
             delete activeRooms[ws.roomId];
         }
-        console.log(`Player ${ws.id} disconnected.`);
     });
 });
 
-// Self-Ping برای بیدار نگه داشتن سرور Render
 const SERVER_URL = 'https://godot-matchmaker.onrender.com';
 setInterval(() => {
-    https.get(SERVER_URL, (res) => {
-        console.log(`Self-ping status: ${res.statusCode}`);
-    }).on('error', (err) => {
-        console.log('Self-ping error:', err.message);
-    });
+    https.get(SERVER_URL, (res) => {}).on('error', (err) => {});
 }, 4 * 60 * 1000);
