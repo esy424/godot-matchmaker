@@ -1,22 +1,17 @@
 const { WebSocketServer, WebSocket } = require('ws');
 const http = require('http');
-const https = require('https');
 
 const PORT = process.env.PORT || 10000;
 
-// ۱. ساخت یک HTTP Server استاندارد
 const server = http.createServer((req, res) => {
     res.writeHead(200, { 'Content-Type': 'text/plain' });
     res.end('Godot Matchmaking Server is Running!');
 });
 
-// ۲. اتصال WebSocketServer به HTTP Server
 const wss = new WebSocketServer({ server });
 
 let waitingQueue = [];
 let activeRooms = {};
-
-console.log(`Matchmaking Server Running on Port ${PORT}`);
 
 wss.on('connection', (ws) => {
     ws.id = Math.floor(100000 + Math.random() * 900000);
@@ -30,13 +25,11 @@ wss.on('connection', (ws) => {
         try {
             const data = JSON.parse(message);
 
-            // ۱. جفت‌سازی اولیه (Matchmaking)
             if (data.type === "find_match") {
                 cleanupPlayerRoom(ws);
 
                 if (!waitingQueue.some(p => p.id === ws.id)) {
                     waitingQueue.push(ws);
-                    console.log(`Player ${ws.id} added to queue. Total in queue: ${waitingQueue.length}`);
                 }
 
                 waitingQueue = waitingQueue.filter(p => p.readyState === WebSocket.OPEN);
@@ -59,18 +52,9 @@ wss.on('connection', (ws) => {
 
                     player1.send(JSON.stringify(matchData));
                     player2.send(JSON.stringify(matchData));
-
-                    console.log(`Created ${roomId} for Players: ${player1.id} & ${player2.id}`);
                 }
             }
 
-            // ۲. انصراف از صف جفت‌سازی
-            if (data.type === "leave_queue" || data.type === "cancel_matchmaking") {
-                waitingQueue = waitingQueue.filter(p => p.id !== ws.id);
-                console.log(`Player ${ws.id} left the queue.`);
-            }
-
-            // ۳. ارسال پیام‌های بازی (Relay)
             if (data.type === "game_action") {
                 if (ws.roomId && activeRooms[ws.roomId]) {
                     const room = activeRooms[ws.roomId];
@@ -91,7 +75,6 @@ wss.on('connection', (ws) => {
     ws.on('close', () => {
         waitingQueue = waitingQueue.filter(p => p.id !== ws.id);
         cleanupPlayerRoom(ws);
-        console.log(`Player ${ws.id} disconnected.`);
     });
 });
 
@@ -111,17 +94,6 @@ function cleanupPlayerRoom(ws) {
     }
 }
 
-// Self-Ping برای بیدار نگه داشتن سرور Render
-const SERVER_URL = 'https://godot-matchmaker.onrender.com';
-setInterval(() => {
-    https.get(SERVER_URL, (res) => {
-        console.log(`Self-ping status: ${res.statusCode}`);
-    }).on('error', (err) => {
-        console.log('Self-ping error:', err.message);
-    });
-}, 4 * 60 * 1000);
-
-// ۳. روشن کردن سرور روی پورت اختصاص داده شده
 server.listen(PORT, () => {
     console.log(`Server listening on port ${PORT}`);
 });
